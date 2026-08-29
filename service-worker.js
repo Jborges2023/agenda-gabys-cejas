@@ -1,6 +1,6 @@
-const CACHE_NAME = 'gabycejas-cache-v2';
+const CACHE_NAME = 'gabycejas-cache-v3';
 const urlsToCache = [
-    './agenda_belleza.html',
+    './index.html',
     './manifest.json',
     './icon-192.png',
     './icon-512.png',
