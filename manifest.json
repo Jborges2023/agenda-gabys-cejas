@@ -2,7 +2,7 @@
   "name": "Gaby Cejas - Agenda & Contabilidad",
   "short_name": "Gaby Cejas",
   "description": "Agenda de citas, clientas y finanzas para Gaby Cejas",
-  "start_url": "./agenda_belleza.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
