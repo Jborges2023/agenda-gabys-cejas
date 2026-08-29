@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <!-- PWA Meta Tags para instalación y apariencia -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="Gaby Cejas">
+    <meta name="apple-mobile-web-app-title" content="Gaby Cejas">
+    <meta name="theme-color" content="#ec4899">
+    <meta name="msapplication-navbutton-color" content="#ec4899">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <meta name="apple-touch-icon" href="icon-192.png">
+
+    <title>Agenda Gaby Cejas</title>
+    <!-- Tailwind CSS para diseño rápido y bonito -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconos -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Tone.js para efectos de sonido (Confirmación de cita) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script> 
+    <!-- Firebase Imports - Mantenemos la estructura por si se usa en el futuro -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Configuración y variables globales para Firebase (MANDATORIAS)
+        window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        window.__firebase_config = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+        window.__initial_auth_token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Exponer funciones necesarias globalmente para el script principal
+        window.initializeFirebaseAndAuth = async () => {
+            // setLogLevel('Debug'); // Comentado para evitar logs innecesarios si no se usa db
+            const firebaseConfig = JSON.parse(window.__firebase_config);
+            if (Object.keys(firebaseConfig).length === 0) {
+                 console.warn("Firebase Configuración vacía. Las funcionalidades de Firestore no estarán disponibles.");
+                 window.db = null; // Marcar como no disponible
+                 window.auth = null;
+                 window.userId = 'anon-user';
+                 window.isAuthReady = true;
+                 return;
+            }
+
+            const app = initializeApp(firebaseConfig);
+            window.db = getFirestore(app);
+            window.auth = getAuth(app);
+            
+            // Retorna una promesa que resuelve cuando el estado de autenticación es conocido
+            return new Promise(resolve => {
+                onAuthStateChanged(window.auth, async (user) => {
+                    if (!user) {
+                        try {
+                            if (window.__initial_auth_token) {
+                                await signInWithCustomToken(window.auth, window.__initial_auth_token);
+                            } else {
+                                await signInAnonymously(window.auth);
+                            }
+                        } catch (error) {
+                            console.error("Error al iniciar sesión en Firebase:", error);
+                        }
+                    }
+                    // Una vez que el usuario está autenticado (o anónimamente), resuelve
+                    window.userId = window.auth.currentUser?.uid || 'anon-user';
+                    window.isAuthReady = true;
+                    console.log("Firebase y Autenticación listos. User ID:", window.userId);
+                    resolve();
+                });
+            });
+        };
+
+        // Ya no necesitamos exportar funciones de Firestore si no se usan
+    </script>
+    
+    <style>
+        /* Estilos personalizados para sensación de App Nativa */
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #fce7f3; /* Rosa muy suave */
+            -webkit-tap-highlight-color: transparent;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Animaciones suaves */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Estilo para el contenedor de checkboxes de servicios */
+        .service-checkboxes {
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            background-color: #fff;
+        }
+        .service-checkboxes label {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 0.25rem;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        .service-checkboxes label:hover {
+            background-color: #fdf2f8; /* pink-50 */
+        }
+        .completed-appointment {
+            opacity: 0.95; 
+            background-color: #f0fdfa; /* Teal-50 */
+        }
+        .completed-appointment .text-pink-600 {
+            color: #10b981; /* Teal-500 para el precio */
+        }
+    </style>
+</head>
+<body class="text-gray-800 h-screen overflow-hidden flex flex-col items-center">
+
+    <!-- Contenedor Principal (Simula App Móvil) -->
+    <div class="w-full max-w-md h-full bg-white shadow-2xl flex flex-col relative overflow-hidden sm:rounded-xl sm:h-[95vh] sm:mt-[2.5vh]">
+        
+        <!-- Header -->
+        <header class="bg-pink-500 text-white p-4 pt-6 shadow-md z-10">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h1 class="text-xl font-bold">Gaby Cejas</h1>
+                    <p class="text-pink-100 text-xs">Agenda & Contabilidad Real</p>
+                </div>
+                <button onclick="showSettingsModal()" class="bg-white/20 p-2 rounded-full hover:bg-white/30 transition active:scale-95" aria-label="Configuración">
+                    <i data-lucide="settings" class="w-6 h-6 text-white"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Contenido Dinámico -->
+        <main id="mainContent" class="flex-1 overflow-y-auto bg-gray-50 pb-24 relative scroll-smooth">
+            <!-- Las vistas se inyectarán aquí con JS -->
+        </main>
+
+        <!-- Navegación Inferior -->
+        <nav class="absolute bottom-0 w-full bg-white border-t border-gray-200 flex justify-around items-center py-3 pb-5 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+            <button onclick="router('agenda')" class="nav-btn flex flex-col items-center text-pink-500 w-1/4" id="btn-agenda">
+                <i data-lucide="calendar-plus" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-medium">Agendar</span>
+            </button>
+            <button onclick="router('citas')" class="nav-btn flex flex-col items-center text-gray-400 w-1/4" id="btn-citas">
+                <i data-lucide="list" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-medium">Citas</span>
+            </button>
+            <button onclick="router('clientes')" class="nav-btn flex flex-col items-center text-gray-400 w-1/4" id="btn-clientes">
+                <i data-lucide="users" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-medium">Clientes</span>
+            </button>
+            <button onclick="router('finanzas')" class="nav-btn flex flex-col items-center text-gray-400 w-1/4" id="btn-finanzas">
+                <i data-lucide="dollar-sign" class="w-6 h-6 mb-1"></i>
+                <span class="text-[10px] font-medium">Finanzas</span>
+            </button>
+        </nav>
+
+        <!-- Notificación Toast -->
+        <div id="toast" class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg text-sm opacity-0 transition-opacity duration-300 pointer-events-none z-50">
+            Acción realizada
+        </div>
+
+        <!-- Modal de Confirmación (Reemplaza a confirm() de JS nativo) -->
+        <div id="confirmationModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 transition-opacity duration-300 opacity-0 pointer-events-none z-50">
+            <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-xs transform scale-95 transition-transform duration-300">
+                <h3 class="text-lg font-bold mb-2 text-gray-800">Confirmación</h3>
+                <p id="modalMessage" class="text-gray-600 mb-6 text-sm"></p>
+                <div class="flex justify-end space-x-3">
+                    <button id="modalCancel" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">Cancelar</button>
+                    <button id="modalConfirm" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">Confirmar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Edición de Cita -->
+        <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 transition-opacity duration-300 opacity-0 pointer-events-none z-50 overflow-y-auto">
+            <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm transform scale-95 transition-transform duration-300 my-8">
+                <h3 class="text-xl font-bold mb-4 text-pink-500">Editar Cita</h3>
+                <form id="editForm" class="space-y-4">
+                    <input type="hidden" id="editAppointmentId">
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">Nombre de la Clienta</label>
+                        <input type="text" id="editClientName" required class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 mb-1">Fecha</label>
+                            <input type="date" id="editDate" required class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 mb-1">Hora</label>
+                            <input type="time" id="editTime" required class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600 mb-1">Atendido por</label>
+                        <select id="editStaffSelect" class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none bg-white">
+                        </select>
+                    </div>
+
+                    <!-- SECCIÓN DE SERVICIOS - AHORA COMO DESPLEGABLE -->
+                    <div>
+                        <!-- Botón/Header para el Desplegable -->
+                        <button type="button" onclick="window.toggleServicesDropdown('editServicesCheckboxes', 'editToggleIcon')"
+                            class="w-full flex justify-between items-center p-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-pink-400 outline-none transition duration-150">
+                            <span class="text-sm font-medium text-gray-600">Servicios (Selección Múltiple)</span>
+                            <i data-lucide="chevron-down" id="editToggleIcon" class="w-5 h-5 text-gray-500 transition-transform duration-300"></i>
+                        </button>
+
+                        <!-- Contenido Desplegable: Checkboxes (inicia oculto) -->
+                        <div id="editServicesCheckboxes" class="service-checkboxes mt-2 hidden">
+                            <!-- Checkboxes se inyectan aquí -->
+                        </div>
+                    </div>
+                    
+                    <div class="bg-pink-50 p-3 rounded-lg border border-pink-100 mt-4 text-sm">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-gray-600">Total a Pagar:</span>
+                            <span class="text-pink-600 font-bold" id="editSummaryPrice">$0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-600">Duración Total:</span>
+                            <span class="text-gray-800 font-medium" id="editSummaryDuration">0 min</span>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end space-x-3 pt-4">
+                        <button type="button" onclick="hideEditModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">Cancelar</button>
+                        <button type="submit" class="px-4 py-2 bg-pink-500 text-white font-bold rounded-lg hover:bg-pink-600 transition">Guardar Cambios</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Modal de Configuración -->
+        <div id="settingsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 transition-opacity duration-300 opacity-0 pointer-events-none z-50">
+            <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm transform scale-95 transition-transform duration-300">
+                <div class="flex justify-between items-center mb-4">
+                    <button onclick="hideSettingsModal()" class="text-gray-500 hover:text-gray-700 p-1 -ml-1" aria-label="Volver">
+                        <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                    </button>
+                    <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <i data-lucide="settings" class="w-5 h-5 text-pink-500"></i> Configuración
+                    </h3>
+                    <button onclick="hideSettingsModal()" class="text-gray-400 hover:text-gray-600 p-1" aria-label="Cerrar">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    <button onclick="exportBackup()" class="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-pink-50 transition text-left">
+                        <div class="bg-teal-100 p-2 rounded-lg"><i data-lucide="download" class="w-5 h-5 text-teal-600"></i></div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-800">Exportar respaldo</p>
+                            <p class="text-xs text-gray-400">Guarda un archivo con todas tus citas</p>
+                        </div>
+                    </button>
+
+                    <label class="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-pink-50 transition text-left cursor-pointer">
+                        <div class="bg-blue-100 p-2 rounded-lg"><i data-lucide="upload" class="w-5 h-5 text-blue-600"></i></div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-800">Importar respaldo</p>
+                            <p class="text-xs text-gray-400">Restaura citas desde un archivo</p>
+                        </div>
+                        <input type="file" id="importFileInput" accept="application/json" class="hidden" onchange="importBackup(event)">
+                    </label>
+
+                    <button onclick="confirmResetApp()" class="w-full flex items-center gap-3 p-3 rounded-lg border border-red-200 hover:bg-red-50 transition text-left">
+                        <div class="bg-red-100 p-2 rounded-lg"><i data-lucide="trash-2" class="w-5 h-5 text-red-600"></i></div>
+                        <div>
+                            <p class="text-sm font-semibold text-red-600">Resetear app</p>
+                            <p class="text-xs text-gray-400">Borra todas las citas de este dispositivo</p>
+                        </div>
+                    </button>
+                </div>
+
+                <div class="border-t border-gray-100 mt-4 pt-4">
+                    <p class="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                        <i data-lucide="user-cog" class="w-4 h-4 text-pink-500"></i> Equipo / Profesionales
+                    </p>
+                    <div class="flex gap-2 mb-2">
+                        <input type="text" id="newStaffName" placeholder="Ej: Ana" class="flex-1 p-2 text-sm rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none">
+                        <button onclick="addStaffMember()" class="bg-pink-500 hover:bg-pink-600 text-white px-3 rounded-lg text-sm font-semibold">Agregar</button>
+                    </div>
+                    <div id="staffListContainer" class="flex flex-wrap gap-2"></div>
+                </div>
+
+                <p class="text-[10px] text-gray-400 mt-4 text-center">Gaby Cejas · Los datos se guardan solo en este dispositivo</p>
+            </div>
+        </div>
+
+        <!-- Modal de Detalle de Clienta -->
+        <div id="clientDetailModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 transition-opacity duration-300 opacity-0 pointer-events-none z-50">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm transform scale-95 transition-transform duration-300 overflow-hidden">
+                <div class="bg-gradient-to-r from-pink-500 to-rose-400 p-5 relative">
+                    <button onclick="hideClientDetailModal()" class="absolute top-3 left-3 text-white/90 hover:text-white p-1" aria-label="Volver">
+                        <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="hideClientDetailModal()" class="absolute top-3 right-3 text-white/90 hover:text-white p-1" aria-label="Cerrar">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                    <div id="clientDetailHeader" class="flex flex-col items-center text-center pt-3"></div>
+                </div>
+                <div id="clientDetailBody" class="p-5 space-y-3 max-h-[60vh] overflow-y-auto"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- LÓGICA JAVASCRIPT -->
+    <script>
+        // --- CONFIGURACIÓN Y DATOS ---
+        
+        // Servicios predefinidos (ACTUALIZADOS)
+        const servicesCatalog = [
+            // Depilaciones
+            { id: 10, name: "Bikini", price: 40000, duration: 20 },
+            { id: 11, name: "Bozo", price: 5000, duration: 2 },
+            { id: 12, name: "Menton", price: 5000, duration: 2 },
+            { id: 13, name: "Depilación de Ceja", price: 20000, duration: 15 },
+            { id: 14, name: "Depilación Brasilera", price: 55000, duration: 35 },
+            { id: 15, name: "Depilación de Piernas completas", price: 80000, duration: 60 }, // 1 hora
+            { id: 16, name: "Depilación media pierna", price: 40000, duration: 20 },
+            // Cejas y Pestañas
+            { id: 20, name: "Cejas con Henna (sin depilación)", price: 25000, duration: 20 },
+            { id: 21, name: "Cejas con Henna", price: 35000, duration: 30 },
+            { id: 22, name: "Lifting de Pestañas", price: 65000, duration: 90 }, // 1 hora y media
+            { id: 23, name: "Laminado de Cejas", price: 60000, duration: 40 },
+            { id: 24, name: "Pestañas Punto a Punto", price: 25000, duration: 20 },
+            { id: 25, name: "Pestañas Pelo a Pelo", price: 120000, duration: 120 }, // 2 horas
+            { id: 26, name: "Retoque Pestañas Pelo a Pelo", price: 55000, duration: 90 } // 1 hora y media
+        ];
+
+        // Estado de la aplicación
+        let appointments = JSON.parse(localStorage.getItem('beautyAppointments')) || [];
+        let staffMembers = JSON.parse(localStorage.getItem('beautyStaff')) || ['Gaby'];
+        let currentView = 'agenda';
+        let currentCitasSubView = 'pendientes'; // Controla la sub-vista de Citas
+        let pendingAction = null; // Para el modal de confirmación
+        let currentFinanceSubView = 'resumen'; // Sub-vista de Finanzas
+        
+        // Estado de Firebase (mantenido pero sin uso de Firestore para el historial)
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        window.isAuthReady = false;
+
+        // --- FUNCIONES DE AUDIO (TONE.JS) ---
+        let audioInitialized = false;
+        let synth;
+
+        const initAudio = () => {
+            if (!audioInitialized) {
+                if (typeof Tone !== 'undefined' && Tone.context.state !== 'running') {
+                    Tone.start().then(() => {
+                        console.log("AudioContext iniciado.");
+                        audioInitialized = true;
+                        synth = new Tone.PolySynth(Tone.Synth, {
+                            oscillator: { type: "sine" },
+                            envelope: {
+                                attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.5,
+                            },
+                            volume: -8
+                        }).toDestination();
+                    });
+                } else if (typeof Tone !== 'undefined') {
+                    audioInitialized = true;
+                    synth = new Tone.PolySynth(Tone.Synth, {
+                        oscillator: { type: "sine" },
+                        envelope: {
+                            attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.5,
+                        },
+                        volume: -8
+                    }).toDestination();
+                }
+            }
+        };
+
+        const playConfirmationSound = () => {
+            if (audioInitialized && synth) {
+                synth.triggerAttackRelease(["C5", "E5", "G5"], "8n");
+            } else {
+                initAudio();
+            }
+        };
+        // --- FIN FUNCIONES DE AUDIO ---
+
+        // --- FUNCIONES UTILITARIAS ---
+
+        const formatCurrency = (amount) => {
+            return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(amount);
+        };
+
+        const formatDate = (dateString) => {
+            // Manejar fechas en formato YYYY-MM-DD
+            const [year, month, day] = dateString.split('-');
+            // Cuidado con la zona horaria al crear la fecha
+            const date = new Date(year, month - 1, day, 12); // Usar 12 PM para evitar problemas de TZ
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('es-ES', options);
+        };
+        
+        const formatMonthYear = (dateString) => {
+            // Convierte YYYY-MM a "Nombre del Mes, YYYY"
+            const [year, monthNum] = dateString.split('-');
+            const date = new Date(year, monthNum - 1);
+            return date.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
+        };
+
+        const showToast = (message) => {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.classList.remove('opacity-0');
+            setTimeout(() => toast.classList.add('opacity-0'), 2500);
+        };
+
+        const saveData = () => {
+            localStorage.setItem('beautyAppointments', JSON.stringify(appointments));
+            // Recargar vistas que dependen de los datos locales
+            if (currentView === 'finanzas' && currentFinanceSubView === 'resumen') renderFinanzasResumen(document.getElementById('financeContent'));
+            if (currentView === 'finanzas' && currentFinanceSubView === 'historial') renderFinanzasHistorial(document.getElementById('financeContent')); 
+            if (currentView === 'finanzas' && currentFinanceSubView === 'equipo') renderFinanzasEquipo(document.getElementById('financeContent'));
+            if (currentView === 'citas') setCitasSubView(currentCitasSubView); // Asegura que la lista de citas se actualice
+            if (currentView === 'clientes') renderClientes(document.getElementById('mainContent'));
+        };
+        
+        const formatDuration = (totalMinutes) => {
+            if (totalMinutes === 0) return "0 min";
+            
+            if (totalMinutes >= 60) {
+                const hours = Math.floor(totalMinutes / 60);
+                const minutes = totalMinutes % 60;
+                
+                let parts = [];
+                if (hours > 0) parts.push(`${hours} hora${hours > 1 ? 's' : ''}`);
+                if (minutes > 0) parts.push(`${minutes} min`);
+
+                if (parts.length === 2) return `${parts[0]} y ${parts[1]}`;
+                return parts.join(' ');
+                
+            } else {
+                return `${totalMinutes} min`;
+            }
+        };
+
+
+        // --- FUNCIÓN PARA EL DESPLEGABLE DE SERVICIOS ---
+        window.toggleServicesDropdown = (containerId, iconId) => {
+            const container = document.getElementById(containerId);
+            const icon = document.getElementById(iconId);
+            
+            container.classList.toggle('hidden');
+            if (icon) icon.classList.toggle('rotate-180');
+        };
+        
+        // --- LÓGICA DEL MODAL DE CONFIRMACIÓN (Eliminar, Completar) ---
+
+        const showConfirmationModal = (message, onConfirm) => {
+            const modal = document.getElementById('confirmationModal');
+            const modalMessage = document.getElementById('modalMessage');
+            
+            modalMessage.innerText = message;
+            
+            pendingAction = onConfirm;
+            
+            modal.classList.remove('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.remove('scale-95');
+        };
+
+        const hideConfirmationModal = () => {
+            const modal = document.getElementById('confirmationModal');
+            modal.classList.add('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.add('scale-95');
+            pendingAction = null;
+        };
+
+        document.getElementById('modalConfirm').addEventListener('click', () => {
+            if (pendingAction) {
+                pendingAction();
+            }
+            hideConfirmationModal();
+        });
+
+        document.getElementById('modalCancel').addEventListener('click', hideConfirmationModal);
+
+        // --- LÓGICA DEL MODAL DE CONFIGURACIÓN ---
+
+        window.showSettingsModal = () => {
+            const modal = document.getElementById('settingsModal');
+            modal.classList.remove('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.remove('scale-95');
+            renderStaffList();
+            lucide.createIcons();
+        };
+
+        // --- GESTIÓN DE EQUIPO / PROFESIONALES ---
+
+        const saveStaff = () => {
+            localStorage.setItem('beautyStaff', JSON.stringify(staffMembers));
+        };
+
+        const renderStaffList = () => {
+            const container = document.getElementById('staffListContainer');
+            if (!container) return;
+            if (staffMembers.length === 0) {
+                container.innerHTML = `<p class="text-xs text-gray-400">Aún no has agregado profesionales.</p>`;
+                return;
+            }
+            container.innerHTML = staffMembers.map(name => `
+                <span class="flex items-center gap-1 bg-pink-50 text-pink-600 text-xs font-medium pl-3 pr-1 py-1 rounded-full border border-pink-200">
+                    ${name}
+                    <button onclick="removeStaffMember('${name.replace(/'/g, "\\'")}')" class="text-pink-400 hover:text-red-500 p-1">
+                        <i data-lucide="x" class="w-3 h-3"></i>
+                    </button>
+                </span>
+            `).join('');
+            lucide.createIcons();
+        };
+
+        window.addStaffMember = () => {
+            const input = document.getElementById('newStaffName');
+            let name = input.value.trim();
+            if (!name) return;
+            name = name.charAt(0).toUpperCase() + name.slice(1);
+            if (staffMembers.some(s => s.toLowerCase() === name.toLowerCase())) {
+                showToast('Ese nombre ya está en el equipo.');
+                return;
+            }
+            staffMembers.push(name);
+            saveStaff();
+            input.value = '';
+            renderStaffList();
+            showToast(`${name} agregada al equipo.`);
+        };
+
+        window.removeStaffMember = (name) => {
+            staffMembers = staffMembers.filter(s => s !== name);
+            saveStaff();
+            renderStaffList();
+            showToast('Profesional eliminada del equipo.');
+        };
+
+        window.hideSettingsModal = () => {
+            const modal = document.getElementById('settingsModal');
+            modal.classList.add('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.add('scale-95');
+        };
+
+        // Exportar todas las citas a un archivo .json descargable
+        window.exportBackup = () => {
+            if (appointments.length === 0) {
+                showToast('No hay citas para exportar todavía.');
+                return;
+            }
+            const backup = {
+                app: 'gabycejas-agenda',
+                exportedAt: new Date().toISOString(),
+                appointments: appointments
+            };
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const fecha = new Date().toISOString().split('T')[0];
+            a.href = url;
+            a.download = `respaldo-gabycejas-${fecha}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Respaldo descargado con éxito.');
+        };
+
+        // Importar citas desde un archivo .json (fusiona con las citas existentes evitando duplicados por id)
+        window.importBackup = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    const importedAppointments = Array.isArray(data) ? data : data.appointments;
+
+                    if (!Array.isArray(importedAppointments)) {
+                        throw new Error('Formato inválido');
+                    }
+
+                    const existingIds = new Set(appointments.map(a => a.id));
+                    let addedCount = 0;
+
+                    importedAppointments.forEach(imp => {
+                        if (imp && typeof imp.id !== 'undefined' && !existingIds.has(imp.id)) {
+                            appointments.push(imp);
+                            existingIds.add(imp.id);
+                            addedCount++;
+                        }
+                    });
+
+                    saveData();
+                    router(currentView);
+                    hideSettingsModal();
+                    showToast(addedCount > 0 ? `${addedCount} cita(s) importada(s) con éxito.` : 'El respaldo no tenía citas nuevas.');
+                } catch (err) {
+                    console.error('Error al importar respaldo:', err);
+                    showToast('Error: el archivo no es un respaldo válido.');
+                } finally {
+                    event.target.value = '';
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        // Resetear la app por completo (borra todas las citas de este dispositivo)
+        window.confirmResetApp = () => {
+            showConfirmationModal(
+                '¿Estás segura de que quieres BORRAR TODAS las citas de este dispositivo? Te recomendamos exportar un respaldo antes. Esta acción es irreversible.',
+                () => {
+                    appointments = [];
+                    saveData();
+                    hideSettingsModal();
+                    router('agenda');
+                    showToast('La app se reseteó correctamente.');
+                }
+            );
+        };
+
+        // --- LÓGICA DEL MODAL DE EDICIÓN ---
+        
+        const showEditModal = (appointmentId) => {
+            const appointment = appointments.find(a => a.id === appointmentId);
+            if (!appointment) {
+                showToast("Error: Cita no encontrada.");
+                return;
+            }
+
+            // No permitir editar si ya está completada
+            if (appointment.status === 'completed') {
+                showToast("No se puede editar una cita ya completada.");
+                return;
+            }
+
+            document.getElementById('editAppointmentId').value = appointment.id;
+            document.getElementById('editClientName').value = appointment.client;
+            document.getElementById('editDate').value = appointment.date;
+            document.getElementById('editTime').value = appointment.time;
+
+            const staffSelectEl = document.getElementById('editStaffSelect');
+            const staffOptions = staffMembers.length === 0 ? ['Sin asignar'] : staffMembers;
+            staffSelectEl.innerHTML = staffOptions.map(s => `<option value="${s}">${s}</option>`).join('');
+            if (appointment.staff && !staffOptions.includes(appointment.staff)) {
+                staffSelectEl.innerHTML += `<option value="${appointment.staff}">${appointment.staff}</option>`;
+            }
+            staffSelectEl.value = appointment.staff || staffOptions[0];
+
+            const servicesContainer = document.getElementById('editServicesCheckboxes');
+            const toggleIcon = document.getElementById('editToggleIcon');
+            servicesContainer.innerHTML = '';
+            
+            servicesCatalog.forEach(s => {
+                const isChecked = appointment.services.some(as => as.id === s.id);
+                
+                servicesContainer.innerHTML += `
+                    <label>
+                        <input type="checkbox" name="editService" value="${s.id}" data-price="${s.price}" data-duration="${s.duration}" onchange="updateEditSummary()" class="mr-2 text-pink-500 focus:ring-pink-500 rounded" ${isChecked ? 'checked' : ''}>
+                        ${s.name} (${formatCurrency(s.price)})
+                    </label>
+                `;
+            });
+
+            servicesContainer.classList.add('hidden');
+            if (toggleIcon) toggleIcon.classList.remove('rotate-180');
+
+
+            updateEditSummary();
+
+            const modal = document.getElementById('editModal');
+            modal.classList.remove('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.remove('scale-95');
+        };
+
+        window.updateEditSummary = () => {
+            const selectedServices = Array.from(document.querySelectorAll('#editServicesCheckboxes input[type="checkbox"]:checked'));
+            let totalPrice = 0;
+            let totalDuration = 0;
+
+            selectedServices.forEach(checkbox => {
+                totalPrice += parseInt(checkbox.dataset.price);
+                totalDuration += parseInt(checkbox.dataset.duration);
+            });
+
+            document.getElementById('editSummaryPrice').innerText = formatCurrency(totalPrice);
+            document.getElementById('editSummaryDuration').innerText = formatDuration(totalDuration);
+        };
+
+        const hideEditModal = () => {
+            const modal = document.getElementById('editModal');
+            modal.classList.add('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.add('scale-95');
+        };
+
+        document.getElementById('editForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const id = parseInt(document.getElementById('editAppointmentId').value);
+            const client = document.getElementById('editClientName').value.trim();
+            const date = document.getElementById('editDate').value;
+            const time = document.getElementById('editTime').value;
+            
+            const selectedServicesCheckboxes = Array.from(document.querySelectorAll('#editServicesCheckboxes input[type="checkbox"]:checked'));
+
+            if (selectedServicesCheckboxes.length === 0) {
+                showToast("Debes seleccionar al menos un servicio.");
+                return;
+            }
+
+            const servicesData = selectedServicesCheckboxes.map(checkbox => {
+                const serviceId = parseInt(checkbox.value);
+                return servicesCatalog.find(s => s.id === serviceId);
+            });
+            
+            const totalPrice = servicesData.reduce((sum, s) => sum + s.price, 0);
+            const totalDuration = servicesData.reduce((sum, s) => sum + s.duration, 0);
+            const serviceNames = servicesData.map(s => s.name).join(', ');
+
+            const editStaffSelectEl = document.getElementById('editStaffSelect');
+            const staffName = editStaffSelectEl && editStaffSelectEl.value ? editStaffSelectEl.value : 'Sin asignar';
+
+            const index = appointments.findIndex(a => a.id === id);
+            if (index !== -1) {
+                // Mantenemos el estado actual al editar (debería ser 'scheduled')
+                appointments[index] = {
+                    ...appointments[index], // Mantener campos existentes como 'status'
+                    client: client.charAt(0).toUpperCase() + client.slice(1), // Capitalizar nombre
+                    date: date,
+                    time: time,
+                    serviceName: serviceNames,
+                    services: servicesData,
+                    price: totalPrice,
+                    duration: totalDuration,
+                    timestamp: new Date(date + 'T' + time).getTime(),
+                    staff: staffName
+                };
+                saveData();
+                hideEditModal();
+                showToast('Cita actualizada con éxito.');
+                router('citas');
+            }
+        });
+
+        // --- FIN LÓGICA DEL MODAL DE EDICIÓN ---
+
+        // --- LÓGICA DE ESTADO Y ELIMINACIÓN ---
+        
+        window.markAsCompleted = (id) => {
+             const appointment = appointments.find(a => a.id === id);
+             if (appointment) {
+                const message = `¿Confirmas que la cita de ${appointment.client} ha sido **COMPLETADA** y has recibido ${formatCurrency(appointment.price)}?`;
+                showConfirmationModal(message, () => {
+                    const index = appointments.findIndex(a => a.id === id);
+                    if (index !== -1) {
+                        appointments[index].status = 'completed';
+                        saveData();
+                        showToast(`¡Ganancia de ${formatCurrency(appointment.price)} registrada!`);
+                        // Después de completar, volvemos a la vista de citas completadas para verla reflejada
+                        setCitasSubView('completadas');
+                    }
+                });
+             }
+        };
+
+        window.confirmDelete = (id) => {
+            const appointmentToDelete = appointments.find(a => a.id === id);
+            if (appointmentToDelete) {
+                const statusText = appointmentToDelete.status === 'completed' ? ' (Ganancia Registrada)' : '';
+                const message = `¿Estás segura de que quieres **BORRAR** la cita de ${appointmentToDelete.client}? Esta acción es irreversible${statusText}.`;
+                showConfirmationModal(message, () => deleteAppointment(id));
+            }
+        };
+
+        const deleteAppointment = (id) => {
+            appointments = appointments.filter(a => a.id !== id);
+            saveData();
+            // Mantener la sub-vista actual
+            setCitasSubView(currentCitasSubView);
+            lucide.createIcons();
+            showToast('Cita eliminada');
+        };
+
+
+        // --- VISTAS (RENDERIZADO) ---
+
+        const router = (view) => {
+            currentView = view;
+            
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('text-pink-500');
+                btn.classList.add('text-gray-400');
+            });
+            document.getElementById(`btn-${view}`).classList.remove('text-gray-400');
+            document.getElementById(`btn-${view}`).classList.add('text-pink-500');
+
+            const main = document.getElementById('mainContent');
+            main.innerHTML = '';
+            
+            if (view === 'agenda') renderAgenda(main);
+            else if (view === 'citas') renderCitas(main);
+            else if (view === 'clientes') renderClientes(main);
+            else if (view === 'finanzas') renderFinanzas(main);
+
+            lucide.createIcons();
+        };
+
+        // 1. VISTA AGENDAR
+        const renderAgenda = (container) => {
+            const today = new Date().toISOString().split('T')[0];
+            
+            let servicesCheckboxesHTML = servicesCatalog.map(s => `
+                <label>
+                    <input type="checkbox" name="service" value="${s.id}" data-price="${s.price}" data-duration="${s.duration}" onchange="updateAgendaSummary()" class="mr-2 text-pink-500 focus:ring-pink-500 rounded">
+                    ${s.name} (${formatCurrency(s.price)})
+                </label>
+            `).join('');
+
+            // Crear una lista de nombres únicos de clientes (capitalizados)
+            const uniqueClients = [...new Set(appointments.map(a => 
+                a.client.charAt(0).toUpperCase() + a.client.slice(1)
+            ))];
+            const dataListHTML = uniqueClients.map(c => `<option value="${c}">`).join('');
+
+            container.innerHTML = `
+                <div class="p-6 fade-in">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4">Nueva Cita</h2>
+                    <form id="bookingForm" class="space-y-4">
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 mb-1">Nombre de la Clienta</label>
+                            <input type="text" id="clientName" list="clientList" required class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 focus:border-transparent outline-none" placeholder="Ej: María Pérez">
+                            <datalist id="clientList">
+                                ${dataListHTML}
+                            </datalist>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 mb-1">Fecha</label>
+                                <input type="date" id="date" required value="${today}" class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-600 mb-1">Hora</label>
+                                <input type="time" id="time" required class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 mb-1">Atendido por</label>
+                            <select id="staffSelect" class="w-full p-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-pink-400 outline-none bg-white">
+                                ${staffMembers.length === 0 ? '<option value="">Sin asignar</option>' : staffMembers.map(s => `<option value="${s}">${s}</option>`).join('')}
+                            </select>
+                        </div>
+
+                        <div>
+                            <button type="button" onclick="window.toggleServicesDropdown('agendaServicesCheckboxes', 'agendaToggleIcon')"
+                                class="w-full flex justify-between items-center p-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-pink-400 outline-none transition duration-150">
+                                <span class="text-sm font-medium text-gray-600">Servicios (Selección Múltiple)</span>
+                                <i data-lucide="chevron-down" id="agendaToggleIcon" class="w-5 h-5 text-gray-500 transition-transform duration-300"></i>
+                            </button>
+                            
+                            <div id="agendaServicesCheckboxes" class="service-checkboxes mt-2 hidden">
+                                ${servicesCheckboxesHTML}
+                            </div>
+                        </div>
+
+                        <div id="summaryCard" class="hidden bg-pink-50 p-4 rounded-lg border border-pink-100 mt-4">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-gray-600 text-sm">Precio Total:</span>
+                                <span class="text-pink-600 font-bold text-lg" id="summaryPrice">$0</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-600 text-sm">Duración Total:</span>
+                                <span class="text-gray-800 font-medium text-sm" id="summaryDuration">0 min</span>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-4 rounded-lg shadow-md transition transform active:scale-95 mt-6 flex justify-center items-center gap-2">
+                            <i data-lucide="check-circle" class="w-5 h-5"></i> Guardar Cita
+                        </button>
+                    </form>
+                </div>
+            `;
+            
+            const checkboxes = document.querySelectorAll('#agendaServicesCheckboxes input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.addEventListener('change', window.updateAgendaSummary));
+
+            document.getElementById('bookingForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                initAudio();
+
+                let rawName = document.getElementById('clientName').value.trim();
+                // Capitalizar la primera letra del nombre para consistencia en el reporte de clientes
+                const name = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+                
+                const date = document.getElementById('date').value;
+                const time = document.getElementById('time').value;
+                
+                const selectedServicesCheckboxes = Array.from(document.querySelectorAll('#agendaServicesCheckboxes input[type="checkbox"]:checked'));
+
+                if (selectedServicesCheckboxes.length === 0) {
+                    showToast("Por favor, selecciona al menos un servicio.");
+                    return;
+                }
+
+                const servicesData = selectedServicesCheckboxes.map(checkbox => {
+                    const serviceId = parseInt(checkbox.value);
+                    return servicesCatalog.find(s => s.id === serviceId);
+                });
+
+                const totalPrice = servicesData.reduce((sum, s) => sum + s.price, 0);
+                const totalDuration = servicesData.reduce((sum, s) => sum + s.duration, 0);
+                const serviceNames = servicesData.map(s => s.name).join(', ');
+                const staffSelectEl = document.getElementById('staffSelect');
+                const staffName = staffSelectEl && staffSelectEl.value ? staffSelectEl.value : 'Sin asignar';
+
+                const newAppointment = {
+                    id: Date.now(),
+                    client: name,
+                    date: date,
+                    time: time,
+                    serviceName: serviceNames,
+                    services: servicesData,
+                    price: totalPrice,
+                    duration: totalDuration,
+                    timestamp: new Date(date + 'T' + time).getTime(),
+                    status: 'scheduled', // AHORA INICIA AGENDADA
+                    staff: staffName
+                };
+
+                appointments.push(newAppointment);
+                saveData();
+                showToast('¡Cita agendada con éxito!');
+                playConfirmationSound();
+                document.getElementById('bookingForm').reset();
+                window.updateAgendaSummary();
+                
+                const agendaContainer = document.getElementById('agendaServicesCheckboxes');
+                const agendaIcon = document.getElementById('agendaToggleIcon');
+                if (!agendaContainer.classList.contains('hidden')) {
+                    // Cierra el desplegable después de agendar
+                    window.toggleServicesDropdown('agendaServicesCheckboxes', 'agendaToggleIcon');
+                }
+                // Si la vista actual es Finanzas, debe refrescarse
+                if (currentView === 'finanzas') setFinanceSubView(currentFinanceSubView);
+            });
+        };
+
+        window.updateAgendaSummary = () => {
+            const selectedServices = Array.from(document.querySelectorAll('#agendaServicesCheckboxes input[type="checkbox"]:checked'));
+            const summaryCard = document.getElementById('summaryCard');
+            
+            if (selectedServices.length === 0) {
+                summaryCard.classList.add('hidden');
+                document.getElementById('summaryPrice').innerText = formatCurrency(0);
+                document.getElementById('summaryDuration').innerText = '0 min';
+                return;
+            }
+
+            let totalPrice = 0;
+            let totalDuration = 0;
+
+            selectedServices.forEach(checkbox => {
+                totalPrice += parseInt(checkbox.dataset.price);
+                totalDuration += parseInt(checkbox.dataset.duration);
+            });
+            
+            document.getElementById('summaryPrice').innerText = formatCurrency(totalPrice);
+            document.getElementById('summaryDuration').innerText = formatDuration(totalDuration);
+            summaryCard.classList.remove('hidden');
+        };
+
+        // 2. VISTA LISTA DE CITAS
+        const renderCitas = (container) => {
+            container.innerHTML = `
+                <div class="p-4 pt-6 fade-in">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4 px-2">Historial de Citas</h2>
+                    
+                    <!-- Sub-Navegación -->
+                    <div class="flex bg-white p-1 rounded-xl shadow-sm mb-4">
+                        <button id="btn-sub-pendientes" onclick="setCitasSubView('pendientes')" class="w-1/3 py-2 text-xs font-medium rounded-lg transition">Pendientes</button>
+                        <button id="btn-sub-completadas" onclick="setCitasSubView('completadas')" class="w-1/3 py-2 text-xs font-medium rounded-lg transition">Completadas</button>
+                        <button id="btn-sub-todas" onclick="setCitasSubView('todas')" class="w-1/3 py-2 text-xs font-medium rounded-lg transition">Todas</button>
+                    </div>
+
+                    <div id="citasContent" class="pb-6 -mx-2">
+                        <!-- Contenido dinámico de las sub-vistas -->
+                    </div>
+                </div>
+            `;
+
+            // Renderiza la sub-vista actual
+            setCitasSubView(currentCitasSubView);
+        };
+
+        window.setCitasSubView = (subView) => {
+            currentCitasSubView = subView;
+            const contentContainer = document.getElementById('citasContent');
+            const btns = ['pendientes', 'completadas', 'todas'].map(id => document.getElementById(`btn-sub-${id}`));
+
+            // Actualizar estilos de la sub-navegación
+            btns.forEach(btn => {
+                btn.classList.remove('bg-pink-500', 'text-white');
+                btn.classList.add('text-gray-600', 'hover:bg-pink-50');
+            });
+
+            const activeBtn = document.getElementById(`btn-sub-${subView}`);
+            if(activeBtn) {
+                activeBtn.classList.add('bg-pink-500', 'text-white');
+                activeBtn.classList.remove('text-gray-600', 'hover:bg-pink-50');
+            }
+
+            let filteredAppointments = [];
+            
+            if (subView === 'pendientes') {
+                // Citas que están agendadas
+                filteredAppointments = appointments.filter(a => a.status === 'scheduled');
+                // Ordenar por fecha y hora ascendente (las que vienen primero)
+                filteredAppointments.sort((a, b) => a.timestamp - b.timestamp);
+            } else if (subView === 'completadas') {
+                // Citas que están completadas
+                filteredAppointments = appointments.filter(a => a.status === 'completed');
+                // Ordenar por fecha y hora descendente (las más recientes arriba)
+                filteredAppointments.sort((a, b) => b.timestamp - a.timestamp);
+            } else if (subView === 'todas') {
+                filteredAppointments = [...appointments];
+                // Ordenar por fecha y hora ascendente
+                filteredAppointments.sort((a, b) => a.timestamp - b.timestamp);
+            }
+
+            renderAppointmentsList(contentContainer, filteredAppointments, subView);
+            lucide.createIcons();
+        }
+
+        const renderAppointmentsList = (container, filteredAppointments, subView) => {
+            const appointmentsByDate = {};
+            
+            filteredAppointments.forEach(app => {
+                const dateKey = app.date;
+                if (!appointmentsByDate[dateKey]) {
+                    appointmentsByDate[dateKey] = [];
+                }
+                appointmentsByDate[dateKey].push(app);
+            });
+            
+            // Determinar el orden de las fechas basado en la vista
+            let sortedDates;
+            if (subView === 'completadas') {
+                // Para completadas, la fecha más reciente primero
+                sortedDates = Object.keys(appointmentsByDate).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+            } else {
+                // Para pendientes y todas, la fecha más antigua primero
+                sortedDates = Object.keys(appointmentsByDate).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+            }
+
+            let listHTML = '';
+
+            if (filteredAppointments.length === 0) {
+                const message = subView === 'pendientes' ? '¡Todo libre! No hay citas pendientes.' : 
+                                subView === 'completadas' ? 'No hay citas marcadas como completadas aún.' : 
+                                'No hay citas registradas.';
+                
+                listHTML = `
+                    <div class="flex flex-col items-center justify-center h-64 text-gray-400">
+                        <i data-lucide="calendar-x" class="w-12 h-12 mb-2"></i>
+                        <p>${message}</p>
+                    </div>
+                `;
+            } else {
+                sortedDates.forEach(date => {
+                    const dailyAppointments = appointmentsByDate[date];
+                    const count = dailyAppointments.length;
+                    const formattedDate = formatDate(date);
+
+                    const dateHeader = `
+                        <div class="sticky top-0 bg-gray-50/95 backdrop-blur py-3 px-4 text-sm font-bold text-pink-600 uppercase tracking-wider border-b border-pink-200 mt-2 shadow-sm z-10">
+                            ${formattedDate} 
+                            <span class="text-xs font-medium text-gray-500 ml-2">(${count} cita${count !== 1 ? 's' : ''})</span>
+                        </div>
+                    `;
+                    listHTML += dateHeader;
+
+                    dailyAppointments.forEach(app => {
+                        const isCompleted = app.status === 'completed';
+                        const accentColor = isCompleted ? 'text-teal-600' : 'text-green-600';
+                        const borderColor = isCompleted ? 'border-teal-300' : 'border-green-300';
+                        const textColor = isCompleted ? 'text-gray-500' : 'text-gray-800';
+                        const appointmentClass = isCompleted ? 'completed-appointment' : '';
+
+
+                        const displayDuration = formatDuration(app.duration); 
+                        
+                        // Botón de acción
+                        let actionButton = '';
+                        if (!isCompleted) {
+                            actionButton = `
+                                <button onclick="window.markAsCompleted(${app.id})" class="flex items-center text-white bg-teal-500 hover:bg-teal-600 px-3 py-1 text-xs font-semibold rounded-lg transition shadow-md transform active:scale-95">
+                                    <i data-lucide="check" class="w-4 h-4 mr-1"></i> Completada
+                                </button>
+                            `;
+                        } else {
+                            actionButton = `
+                                <span class="flex items-center gap-1 text-teal-600 bg-teal-100 px-3 py-1 text-xs font-bold rounded-lg border border-teal-200">
+                                    <i data-lucide="wallet" class="w-4 h-4"></i> Pagada
+                                </span>
+                            `;
+                        }
+                        
+                        // Botones de edición y eliminación
+                        const editButton = `
+                            <button onclick="showEditModal(${app.id})" class="text-blue-400 hover:text-blue-600 p-1 ${isCompleted ? 'opacity-50 cursor-not-allowed' : ''}" ${isCompleted ? 'disabled' : ''}>
+                                <i data-lucide="square-pen" class="w-4 h-4"></i>
+                            </button>
+                        `;
+                        const deleteButton = `
+                            <button onclick="window.confirmDelete(${app.id})" class="text-red-400 hover:text-red-600 p-1">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        `;
+
+
+                        listHTML += `
+                            <div class="bg-white p-4 mx-4 my-2 rounded-xl shadow-sm border-l-4 ${borderColor} flex flex-col justify-between fade-in ${appointmentClass}">
+                                <div class="flex justify-between items-start mb-2">
+                                    <div>
+                                        <h3 class="font-bold ${textColor} text-lg">${app.client}</h3>
+                                        <p class="font-medium text-sm ${accentColor} mb-1">${app.serviceName}</p>
+                                        ${app.staff ? `<p class="text-[10px] text-gray-400 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i> ${app.staff}</p>` : ''}
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="font-bold ${isCompleted ? 'text-teal-600' : 'text-pink-600'} text-xl">${formatCurrency(app.price)}</span>
+                                    </div>
+                                </div>
+
+                                <div class="flex justify-between items-center pt-2 border-t border-gray-100">
+                                    <div class="flex items-center text-gray-400 text-xs gap-3">
+                                        <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> ${app.time}</span>
+                                        <span class="flex items-center gap-1"><i data-lucide="hourglass" class="w-3 h-3"></i> ${displayDuration}</span>
+                                    </div>
+                                    
+                                    <div class="flex gap-2 items-center">
+                                        ${actionButton}
+                                        ${editButton}
+                                        ${deleteButton}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                });
+            }
+
+            container.innerHTML = `
+                <div class="pb-6">
+                    <div class="px-2 mb-2">
+                        <p class="text-xs text-gray-400">Ahora puedes filtrar por estado.</p>
+                    </div>
+                    <div class="divide-y divide-gray-200">
+                        ${listHTML}
+                    </div>
+                </div>
+            `;
+        };
+
+
+        // 3. VISTA CLIENTES FRECUENTES
+        const renderClientes = (container) => {
+            const clientsMap = {};
+            const RECENT_WINDOW_MS = 90 * 24 * 60 * 60 * 1000; // Ventana de "actividad reciente": 90 días
+            const now = Date.now();
+            
+            // Solo contamos visitas y gastos de citas COMPLETED
+            const completedAppointments = appointments.filter(a => a.status === 'completed');
+
+            completedAppointments.forEach(app => {
+                const name = app.client.trim(); 
+                if (!clientsMap[name]) {
+                    clientsMap[name] = { name: name, count: 0, totalSpent: 0, lastVisit: 0, recentCount: 0, recentSpent: 0 };
+                }
+                clientsMap[name].count++;
+                clientsMap[name].totalSpent += app.price; 
+                // Usamos el timestamp de la cita para determinar la última visita
+                if (app.timestamp > clientsMap[name].lastVisit) {
+                    clientsMap[name].lastVisit = app.timestamp;
+                }
+                // Actividad reciente: solo visitas dentro de los últimos 90 días cuentan para el ranking del Top 3
+                if (now - app.timestamp <= RECENT_WINDOW_MS) {
+                    clientsMap[name].recentCount++;
+                    clientsMap[name].recentSpent += app.price;
+                }
+            });
+
+            // Ordenar clientes: 1ro por actividad reciente (frecuencia últimos 3 meses), 2do gasto reciente,
+            // 3ro gasto total histórico como desempate final. Así, si una clienta deja de ir, su actividad
+            // reciente cae a 0 y pierde su puesto automáticamente frente a clientas más activas.
+            const clientsArray = Object.values(clientsMap).sort((a, b) => {
+                if (b.recentCount !== a.recentCount) return b.recentCount - a.recentCount;
+                if (b.recentSpent !== a.recentSpent) return b.recentSpent - a.recentSpent;
+                if (b.totalSpent !== a.totalSpent) return b.totalSpent - a.totalSpent;
+                return b.lastVisit - a.lastVisit;
+            });
+
+            if (clientsArray.length === 0) {
+                container.innerHTML = `
+                    <div class="pb-6">
+                        <div class="px-6 pt-6 mb-4">
+                            <h2 class="text-xl font-semibold text-gray-700">Fidelización de Clientes</h2>
+                            <p class="text-xs text-gray-400">Ranking basado en frecuencia y gasto total.</p>
+                        </div>
+                        <div class="flex flex-col items-center justify-center h-64 text-gray-400">
+                            <i data-lucide="users" class="w-12 h-12 mb-2"></i>
+                            <p>Aún no hay clientes con citas completadas</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const top3 = clientsArray.slice(0, 3);
+            const rest = clientsArray.slice(3);
+
+            // --- PODIO TOP 3 VIP ---
+            const medalStyles = [
+                { badge: '🥇', ring: 'ring-yellow-400', bg: 'from-yellow-50 to-white', text: 'text-yellow-600', order: 'order-2 md:order-2 -mt-3' },
+                { badge: '🥈', ring: 'ring-gray-300', bg: 'from-gray-50 to-white', text: 'text-gray-500', order: 'order-1 md:order-1' },
+                { badge: '🥉', ring: 'ring-amber-300', bg: 'from-amber-50 to-white', text: 'text-amber-600', order: 'order-3 md:order-3' }
+            ];
+            // Reordenamos visualmente 2do-1ro-3ro para efecto de podio (1ro más alto en el centro)
+            const podiumOrder = [top3[1], top3[0], top3[2]];
+            const podiumStyles = [medalStyles[1], medalStyles[0], medalStyles[2]];
+
+            let podiumHTML = '<div class="flex items-end justify-center gap-2 px-4">';
+            podiumOrder.forEach((client, i) => {
+                if (!client) { podiumHTML += '<div class="flex-1"></div>'; return; }
+                const style = podiumStyles[i];
+                const isFirst = i === 1;
+                podiumHTML += `
+                    <button onclick="showClientDetail('${escapeAttr(client.name)}')" class="flex-1 ${style.order} bg-gradient-to-b ${style.bg} rounded-xl p-3 text-center shadow-sm ring-2 ${style.ring} active:scale-95 transition ${isFirst ? 'pb-4' : 'pb-3'}">
+                        <div class="text-2xl mb-1">${style.badge}</div>
+                        <div class="w-11 h-11 mx-auto rounded-full bg-pink-100 flex items-center justify-center text-pink-600 font-bold text-sm mb-1 ${isFirst ? 'ring-2 ring-yellow-400' : ''}">
+                            ${client.name.substring(0, 2).toUpperCase()}
+                        </div>
+                        <p class="text-xs font-bold text-gray-800 truncate">${client.name}</p>
+                        <p class="text-[10px] ${style.text} font-semibold">${client.count} visitas</p>
+                        <p class="text-[10px] text-gray-500">${formatCurrency(client.totalSpent)}</p>
+                    </button>
+                `;
+            });
+            podiumHTML += '</div>';
+
+            // --- LISTA DEL RESTO DE CLIENTAS ---
+            let listHTML = '';
+            if (rest.length === 0) {
+                listHTML = `<p class="text-center text-xs text-gray-400 mt-4">Todas tus clientas están en el Top 3 🎉</p>`;
+            } else {
+                rest.forEach((client, index) => {
+                    const isVip = client.count >= 3;
+                    const vipBadge = isVip ? `<span class="bg-pink-100 text-pink-600 text-[10px] px-2 py-0.5 rounded-full font-bold border border-pink-200 ml-2">VIP</span>` : '';
+                    const lastVisitDate = new Date(client.lastVisit).toLocaleDateString('es-ES', { month: 'short', day: 'numeric', year: 'numeric' });
+
+                    listHTML += `
+                        <button onclick="showClientDetail('${escapeAttr(client.name)}')" class="w-full text-left bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center fade-in active:scale-[0.98] transition">
+                            <div class="flex items-center">
+                                <div class="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600 font-bold mr-3 text-sm">
+                                    ${client.name.substring(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-gray-800 text-sm flex items-center">
+                                        ${index + 4}. ${client.name} ${vipBadge}
+                                    </h3>
+                                    <p class="text-gray-400 text-xs mt-0.5">Última visita: ${lastVisitDate}</p>
+                                </div>
+                            </div>
+                            <div class="text-right flex items-center gap-2">
+                                <div>
+                                    <div class="text-xs text-gray-500 font-medium mb-1">${client.count} Visitas</div>
+                                    <div class="font-bold text-gray-800 text-sm">${formatCurrency(client.totalSpent)}</div>
+                                </div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-gray-300"></i>
+                            </div>
+                        </button>
+                    `;
+                });
+            }
+
+            container.innerHTML = `
+                <div class="pb-6">
+                    <div class="px-6 pt-6 mb-4">
+                        <h2 class="text-xl font-semibold text-gray-700">Fidelización de Clientes</h2>
+                        <p class="text-xs text-gray-400">El Top 3 se actualiza solo, según quién ha ido más en los últimos 3 meses. Si una clienta se aleja, pierde su puesto.</p>
+                    </div>
+                    <div class="mb-5">
+                        <p class="text-xs font-bold text-gray-500 uppercase tracking-wide px-6 mb-2">🏆 Top 3 VIP · más activas (últimos 3 meses)</p>
+                        ${podiumHTML}
+                    </div>
+                    <div class="px-4 space-y-2">
+                        ${listHTML}
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        // Escapa comillas simples para poder inyectar nombres de forma segura dentro de atributos onclick
+        const escapeAttr = (str) => (str || '').replace(/'/g, "\\'");
+
+        // --- DETALLE DE CLIENTA (últimа visita + historial de gasto total) ---
+        window.showClientDetail = (name) => {
+            const clientAppointments = appointments
+                .filter(a => a.status === 'completed' && a.client.trim() === name)
+                .sort((a, b) => b.timestamp - a.timestamp);
+
+            if (clientAppointments.length === 0) return;
+
+            const totalSpent = clientAppointments.reduce((sum, a) => sum + a.price, 0);
+            const totalVisits = clientAppointments.length;
+            const lastAppointment = clientAppointments[0];
+            const lastVisitDate = new Date(lastAppointment.timestamp).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+            document.getElementById('clientDetailHeader').innerHTML = `
+                <div class="w-16 h-16 rounded-full bg-white/25 flex items-center justify-center text-white font-bold text-xl mb-2 ring-2 ring-white/50">
+                    ${name.substring(0, 2).toUpperCase()}
+                </div>
+                <h3 class="text-white font-bold text-lg">${name}</h3>
+                <p class="text-white/80 text-xs">${totalVisits} visita${totalVisits !== 1 ? 's' : ''} completada${totalVisits !== 1 ? 's' : ''}</p>
+            `;
+
+            document.getElementById('clientDetailBody').innerHTML = `
+                <div class="bg-teal-50 border border-teal-100 rounded-xl p-4 text-center">
+                    <p class="text-xs text-teal-700 font-medium">Total gastado en todo el tiempo</p>
+                    <p class="text-2xl font-bold text-teal-600">${formatCurrency(totalSpent)}</p>
+                </div>
+
+                <div class="bg-pink-50 border border-pink-100 rounded-xl p-4">
+                    <p class="text-xs text-pink-600 font-semibold mb-1 flex items-center gap-1">
+                        <i data-lucide="clock" class="w-3.5 h-3.5"></i> Última visita
+                    </p>
+                    <p class="text-sm text-gray-700 capitalize">${lastVisitDate}</p>
+                    <p class="text-sm text-gray-800 font-semibold mt-1">${lastAppointment.serviceName}</p>
+                    <p class="text-xs text-gray-400 mt-0.5">${formatCurrency(lastAppointment.price)}${lastAppointment.staff ? ' · Atendida por ' + lastAppointment.staff : ''}</p>
+                </div>
+
+                <div>
+                    <p class="text-xs font-semibold text-gray-500 mb-2">Historial completo</p>
+                    <div class="space-y-2">
+                        ${clientAppointments.map(a => `
+                            <div class="flex justify-between items-center border-b border-gray-100 pb-2 last:border-0">
+                                <div>
+                                    <p class="text-xs font-medium text-gray-700">${new Date(a.timestamp).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                                    <p class="text-[11px] text-gray-400">${a.serviceName}</p>
+                                </div>
+                                <p class="text-xs font-bold text-gray-700">${formatCurrency(a.price)}</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            const modal = document.getElementById('clientDetailModal');
+            modal.classList.remove('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.remove('scale-95');
+            lucide.createIcons();
+        };
+
+        window.hideClientDetailModal = () => {
+            const modal = document.getElementById('clientDetailModal');
+            modal.classList.add('pointer-events-none', 'opacity-0');
+            modal.querySelector('div').classList.add('scale-95');
+        };
+
+
+        // 4. VISTA FINANZAS (Contiene sub-vistas de Resumen y Historial)
+        const renderFinanzas = (container) => {
+            container.innerHTML = `
+                <div class="p-4 pt-6 fade-in">
+                    <h2 class="text-xl font-semibold text-gray-700 mb-4 px-2">Gestión Financiera</h2>
+                    
+                    <!-- Sub-Navegación -->
+                    <div class="flex bg-white p-1 rounded-xl shadow-sm mb-4">
+                        <button id="btn-sub-resumen" onclick="setFinanceSubView('resumen')" class="w-1/3 py-2 text-xs font-medium rounded-lg transition">Resumen</button>
+                        <button id="btn-sub-historial" onclick="setFinanceSubView('historial')" class="w-1/3 py-2 text-xs font-medium rounded-lg transition">Historial</button>
+                        <button id="btn-sub-equipo" onclick="setFinanceSubView('equipo')" class="w-1/3 py-2 text-xs font-medium rounded-lg transition">Equipo</button>
+                    </div>
+
+                    <div id="financeContent">
+                        <!-- Contenido dinámico de las sub-vistas -->
+                    </div>
+                </div>
+            `;
+            
+            // Renderiza la sub-vista actual
+            setFinanceSubView(currentFinanceSubView);
+        };
+
+        window.setFinanceSubView = (subView) => {
+            currentFinanceSubView = subView;
+            const contentContainer = document.getElementById('financeContent');
+            const btnResumen = document.getElementById('btn-sub-resumen');
+            const btnHistorial = document.getElementById('btn-sub-historial');
+            const btnEquipo = document.getElementById('btn-sub-equipo');
+
+            // Actualizar estilos de la sub-navegación
+            [btnResumen, btnHistorial, btnEquipo].forEach(btn => {
+                btn.classList.remove('bg-pink-500', 'text-white');
+                btn.classList.add('text-gray-600', 'hover:bg-pink-50');
+            });
+
+            if (subView === 'resumen') {
+                btnResumen.classList.add('bg-pink-500', 'text-white');
+                btnResumen.classList.remove('text-gray-600', 'hover:bg-pink-50');
+                renderFinanzasResumen(contentContainer);
+            } else if (subView === 'historial') {
+                btnHistorial.classList.add('bg-pink-500', 'text-white');
+                btnHistorial.classList.remove('text-gray-600', 'hover:bg-pink-50');
+                renderFinanzasHistorial(contentContainer);
+            } else if (subView === 'equipo') {
+                btnEquipo.classList.add('bg-pink-500', 'text-white');
+                btnEquipo.classList.remove('text-gray-600', 'hover:bg-pink-50');
+                renderFinanzasEquipo(contentContainer);
+            }
+            lucide.createIcons();
+        }
+
+        // 4a. VISTA FINANZAS - RESUMEN (Cálculos de citas locales)
+        const renderFinanzasResumen = (container) => {
+            const now = new Date();
+            const todayStr = now.toISOString().split('T')[0];
+            
+            let totalDay = 0;
+            let totalWeek = 0;
+            let totalQuincena = 0;
+            let totalMonth = 0;
+            
+            // --- FILTRO CRUCIAL: SOLO CITAS COMPLETADAS ---
+            const completedAppointments = appointments.filter(a => a.status === 'completed');
+            // ---------------------------------------------------
+
+            // Calcular el inicio de la semana (Domingo 0, Lunes 1, etc.)
+            const dayOfWeek = now.getDay(); 
+            const startOfWeek = new Date(now);
+            startOfWeek.setDate(now.getDate() - dayOfWeek); 
+            startOfWeek.setHours(0,0,0,0);
+
+            // Calcular el inicio de la quincena (Día 1 o Día 16)
+            const dayOfMonth = now.getDate();
+            const startQuincena = new Date(now.getFullYear(), now.getMonth(), dayOfMonth <= 15 ? 1 : 16);
+            startQuincena.setHours(0,0,0,0); // Aseguramos medianoche
+            
+            // Obtener el inicio del mes actual
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            startOfMonth.setHours(0,0,0,0);
+
+            completedAppointments.forEach(app => {
+                // appDate debe ser un objeto Date para comparaciones, usando 12PM para evitar problemas de TZ
+                const appDate = new Date(app.date + 'T12:00:00'); 
+                const appDateOnly = app.date; // YYYY-MM-DD
+
+                
+                // Ganancia del Día
+                if (appDateOnly === todayStr) totalDay += app.price;
+                
+                // Ganancia del Mes
+                if (appDate >= startOfMonth) {
+                    totalMonth += app.price;
+                }
+
+                // Ganancia de la Semana
+                if (appDate >= startOfWeek) { 
+                    totalWeek += app.price;
+                }
+
+                // Ganancia de la Quincena
+                if (appDate >= startQuincena) {
+                    totalQuincena += app.price;
+                }
+            });
+
+            container.innerHTML = `
+                <div class="space-y-4 pt-2">
+                    <div class="bg-gradient-to-r from-teal-500 to-teal-400 rounded-2xl p-6 text-white shadow-lg shadow-teal-200">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-teal-100 text-sm font-medium mb-1">Ganancia Real Hoy</p>
+                                <h3 class="text-3xl font-bold">${formatCurrency(totalDay)}</h3>
+                            </div>
+                            <div class="bg-white/20 p-2 rounded-lg">
+                                <i data-lucide="wallet" class="w-6 h-6 text-white"></i>
+                            </div>
+                        </div>
+                        <p class="text-xs text-teal-100 mt-2">Solo incluye citas marcadas como **Completadas**.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                            <div class="flex items-center gap-2 mb-2 text-gray-500">
+                                <i data-lucide="calendar-days" class="w-4 h-4"></i>
+                                <span class="text-xs font-medium uppercase">Semana (Ganado)</span>
+                            </div>
+                            <p class="text-xl font-bold text-gray-800">${formatCurrency(totalWeek)}</p>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                            <div class="flex items-center gap-2 mb-2 text-gray-500">
+                                <i data-lucide="calendar-range" class="w-4 h-4"></i>
+                                <span class="text-xs font-medium uppercase">Quincena (Ganado)</span>
+                            </div>
+                            <p class="text-xl font-bold text-gray-800">${formatCurrency(totalQuincena)}</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800 text-white p-5 rounded-xl shadow-lg flex justify-between items-center">
+                        <div>
+                            <p class="text-gray-400 text-xs uppercase font-bold mb-1">Total del Mes (Ganado)</p>
+                            <h3 class="text-2xl font-bold text-pink-400">${formatCurrency(totalMonth)}</h3>
+                        </div>
+                        <i data-lucide="trending-up" class="w-8 h-8 text-gray-600"></i>
+                    </div>
+                </div>
+            `;
+        };
+
+        // 4b. VISTA FINANZAS - HISTORIAL (REPORTE DE FACTURACIÓN MENSUAL)
+        const renderFinanzasHistorial = (container) => {
+            // 1. Filtrar solo citas completadas
+            const completedAppointments = appointments.filter(a => a.status === 'completed');
+            
+            // 2. Agrupar por mes (YYYY-MM) y sumar la ganancia
+            const monthlyRevenue = completedAppointments.reduce((acc, app) => {
+                // app.date es YYYY-MM-DD. Tomamos YYYY-MM
+                const monthKey = app.date.substring(0, 7); 
+                acc[monthKey] = (acc[monthKey] || 0) + app.price;
+                return acc;
+            }, {});
+
+            // 3. Convertir a un array de objetos y ordenar (Mes más reciente primero)
+            let monthlyArray = Object.keys(monthlyRevenue).map(key => ({
+                monthKey: key,
+                totalRevenue: monthlyRevenue[key]
+            })).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+
+            // 4. Generar el HTML de la lista
+            let listHTML = '';
+            if (monthlyArray.length === 0) {
+                 listHTML = `
+                    <div class="flex flex-col items-center justify-center h-40 text-gray-400">
+                        <i data-lucide="bar-chart-3" class="w-12 h-12 mb-2"></i>
+                        <p>No hay ingresos completados para generar el historial mensual.</p>
+                    </div>
+                `;
+            } else {
+                monthlyArray.forEach(item => {
+                    const formattedMonth = formatMonthYear(item.monthKey);
+                    
+                    listHTML += `
+                        <li class="py-3 flex justify-between items-center px-3 hover:bg-pink-50 rounded-lg transition duration-150">
+                            <div class="flex flex-col">
+                                <span class="text-sm font-semibold text-gray-800 capitalize">${formattedMonth}</span>
+                                <span class="text-xs text-gray-400">Ganancia Facturada</span>
+                            </div>
+                            <span class="text-xl font-bold text-teal-600">${formatCurrency(item.totalRevenue)}</span>
+                        </li>
+                    `;
+                });
+            }
+
+
+            container.innerHTML = `
+                <div class="space-y-4 pt-2">
+                    <div class="bg-white p-4 rounded-xl shadow-md border border-gray-100">
+                        <h3 class="text-lg font-semibold text-pink-500 mb-3 flex items-center gap-2">
+                            <i data-lucide="history" class="w-5 h-5 text-pink-500"></i> Reporte Mensual
+                        </h3>
+                        <p class="text-xs text-gray-500 mb-3">Total de ingresos por mes, basado solo en citas **Completadas**.</p>
+                        
+                        <ul id="monthly-history-list" class="divide-y divide-gray-100 max-h-96 overflow-y-auto hide-scrollbar">
+                            ${listHTML}
+                        </ul>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        // --- REGISTRO DEL SERVICE WORKER (para instalación y modo offline) ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .then(reg => console.log('Service Worker registrado:', reg.scope))
+                    .catch(err => console.warn('No se pudo registrar el Service Worker:', err));
+            });
+        }
+
+        // 4c. VISTA FINANZAS - EQUIPO (PRODUCCIÓN POR PROFESIONAL)
+        const renderFinanzasEquipo = (container) => {
+            const completedAppointments = appointments.filter(a => a.status === 'completed');
+
+            const staffStats = {};
+            completedAppointments.forEach(app => {
+                const name = app.staff || 'Sin asignar';
+                if (!staffStats[name]) {
+                    staffStats[name] = { name: name, count: 0, totalRevenue: 0 };
+                }
+                staffStats[name].count++;
+                staffStats[name].totalRevenue += app.price;
+            });
+
+            const staffArray = Object.values(staffStats).sort((a, b) => b.totalRevenue - a.totalRevenue);
+
+            let listHTML = '';
+            if (staffArray.length === 0) {
+                listHTML = `
+                    <div class="flex flex-col items-center justify-center h-40 text-gray-400">
+                        <i data-lucide="user-cog" class="w-12 h-12 mb-2"></i>
+                        <p>Aún no hay citas completadas asignadas a un profesional.</p>
+                    </div>
+                `;
+            } else {
+                staffArray.forEach((s, index) => {
+                    const rankBadge = index === 0 ? `<i data-lucide="crown" class="w-4 h-4 inline text-yellow-500 mr-1"></i>` : '';
+                    listHTML += `
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                            <div class="flex items-center">
+                                <div class="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600 font-bold mr-3 text-sm">
+                                    ${s.name.substring(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-gray-800 text-sm flex items-center">${rankBadge}${s.name}</h3>
+                                    <p class="text-gray-400 text-xs mt-0.5">${s.count} cita${s.count !== 1 ? 's' : ''} completada${s.count !== 1 ? 's' : ''}</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-bold text-teal-600 text-lg">${formatCurrency(s.totalRevenue)}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            container.innerHTML = `
+                <div class="space-y-3 pt-2">
+                    <div class="bg-white p-4 rounded-xl shadow-md border border-gray-100">
+                        <h3 class="text-lg font-semibold text-pink-500 mb-1 flex items-center gap-2">
+                            <i data-lucide="user-cog" class="w-5 h-5 text-pink-500"></i> Producción por Profesional
+                        </h3>
+                        <p class="text-xs text-gray-500 mb-3">Ganancia generada por cada persona del equipo, basada en citas **Completadas**.</p>
+                    </div>
+                    ${listHTML}
+                </div>
+            `;
+            lucide.createIcons();
+        };
+
+        // --- INICIALIZACIÓN ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            initAudio(); 
+            // 1. Inicializar Firebase y esperar a la autenticación (mantenido)
+            if (window.initializeFirebaseAndAuth) {
+                await window.initializeFirebaseAndAuth();
+            }
+            // 2. Iniciar la aplicación en la vista de Agenda
+            router('agenda');
+        });
+
+    </script>
+</body>
+</html>
